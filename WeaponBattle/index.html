@@ -1,0 +1,289 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Weapon Battle</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+            background-color: #000;
+            font-family: sans-serif;
+            user-select: none;
+        }
+
+        canvas {
+            display: block;
+            width: 100vw;
+            height: 100vh;
+        }
+
+        .ui-layer {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            color: white;
+            pointer-events: none;
+            z-index: 5;
+        }
+
+        .screen {
+            display: none;
+            flex-direction: column;
+            align-items: center;
+            background: rgba(0,0,0,0.7);
+            padding: 30px;
+            border-radius: 10px;
+            border: 2px solid #fff;
+            pointer-events: auto;
+            min-width: 300px;
+            text-align: center;
+        }
+
+            .screen.active {
+                display: flex;
+            }
+
+        button {
+            background: #333;
+            color: white;
+            border: 2px solid white;
+            padding: 10px 20px;
+            margin: 10px;
+            font-size: 18px;
+            cursor: pointer;
+            transition: 0.2s;
+            border-radius: 5px;
+            width: 200px;
+        }
+
+            button:hover {
+                background: white;
+                color: black;
+            }
+
+        /* ゲーム中HUD */
+        #hud {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            pointer-events: none;
+            display: none;
+            background: rgba(0,0,0,0.5);
+            padding: 15px;
+            border-radius: 5px;
+            border: 1px solid #555;
+            z-index: 10;
+        }
+
+            #hud.active {
+                display: block;
+            }
+
+        .bar-container {
+            width: 200px;
+            height: 20px;
+            background: #333;
+            margin: 5px 0;
+            border-radius: 3px;
+            overflow: hidden;
+            border: 1px solid #fff;
+        }
+
+        #hp-bar {
+            width: 100%;
+            height: 100%;
+            background: #00ff00;
+            transition: width 0.1s;
+        }
+
+        #skill-bar {
+            width: 0%;
+            height: 100%;
+            background: #33ccff;
+            transition: width 0.1s;
+        }
+
+        #stamina-bar {
+            width: 100%;
+            height: 100%;
+            background: #ff9900;
+            transition: width 0.1s;
+        }
+
+        .hud-label-container {
+            display: flex;
+            justify-content: space-between;
+            font-size: 13px;
+            text-shadow: 1px 1px 2px #000;
+        }
+
+        .hud-value {
+            font-family: monospace;
+        }
+
+        .color-hp {
+            color: #00ff00;
+        }
+
+        .color-stamina {
+            color: #ff9900;
+        }
+
+        .color-skill {
+            color: #33ccff;
+        }
+
+        /* Wave案内UIの装飾スタイル */
+        #wave-hud {
+            position: absolute;
+            top: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            color: #fff;
+            font-family: sans-serif;
+            font-size: 24px;
+            font-weight: bold;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.8);
+            pointer-events: none;
+            z-index: 10;
+            display: none; /* ゲーム開始時のみシーンマネージャー等から active クラスを付与するか、GameCoreから制御します */
+            background: rgba(0, 0, 0, 0.4);
+            padding: 5px 20px;
+            border-radius: 20px;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+        }
+
+            #wave-hud.active {
+                display: block;
+            }
+
+        #wave-announce {
+            position: absolute;
+            top: 35%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            color: #ffcc00;
+            font-family: sans-serif;
+            font-size: 54px;
+            font-weight: bold;
+            text-shadow: 3px 3px 8px rgba(0,0,0,0.9);
+            pointer-events: none;
+            z-index: 10;
+            display: none;
+            text-align: center;
+            letter-spacing: 2px;
+            animation: wavePulse 0.5s infinite alternate ease-in-out;
+        }
+
+        /* アナウンス文字の脈動アニメーション（ボス出現時などに迫力を出すため） */
+        @keyframes wavePulse {
+            0% {
+                transform: translate(-50%, -50%) scale(0.95);
+            }
+
+            100% {
+                transform: translate(-50%, -50%) scale(1.05);
+            }
+        }
+    </style>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+</head>
+<body>
+
+    <canvas id="game-canvas"></canvas>
+
+    <div id="wave-hud">WAVE 1</div>
+
+    <div id="wave-announce">WAVE 1 START</div>
+
+    <div id="hud">
+        <div class="hud-section">
+            <div class="hud-label-container color-hp">
+                <span style="font-weight: bold;">❤️ HP</span>
+                <span id="hp-text" class="hud-value">100/100</span>
+            </div>
+            <div class="bar-container"><div id="hp-bar"></div></div>
+        </div>
+
+        <div class="hud-section" style="margin-top: 8px;">
+            <div class="hud-label-container color-stamina">
+                <span style="font-weight: bold;">⚡ STAMINA</span>
+                <span id="stamina-text" class="hud-value">100/100</span>
+            </div>
+            <div class="bar-container"><div id="stamina-bar"></div></div>
+        </div>
+
+        <div class="hud-section" style="margin-top: 8px;">
+            <div class="hud-label-container color-skill">
+                <span style="font-weight: bold;">✨ SKILL</span>
+                <span id="skill-text" class="hud-value">0%</span>
+            </div>
+            <div class="bar-container"><div id="skill-bar"></div></div>
+        </div>
+
+        <div style="font-size: 12px; margin-top: 10px; color: #aaa; text-align: center; border-top: 1px solid #444; padding-top: 5px;">
+            [Esc]: 一時停止
+        </div>
+    </div>
+
+    <div class="ui-layer">
+        <div id="screen-title" class="screen active">
+            <h1>Weapon Battle</h1>
+            <button id="btn-start">ゲームスタート</button>
+            <button id="btn-how-to">操作方法</button>
+            <button id="btn-exit">ゲーム終了</button>
+        </div>
+
+        <div id="screen-howto" class="screen">
+            <h2>操作方法</h2>
+            <p>移動: [W][A][S][D] または 矢印キー</p>
+            <p>通常攻撃: [マウス左クリック] キー</p>
+            <p>スキル攻撃: [マウス右クリック] キー (ゲージ100%で発動)</p>
+            <p>ダッシュ(長押し): [Shift] キー</p>
+            <p>無敵回避: [Space] キー</p>
+            <p>一時停止: [Esc] キー</p>
+            <button id="btn-howto-back">戻る</button>
+        </div>
+
+        <div id="screen-weapon" class="screen">
+            <h2>武器選択</h2>
+            <button id="btn-wp-sword">剣 (連続・近接)</button>
+            <button id="btn-wp-axe">斧 (一撃重・範囲)</button>
+            <button id="btn-wp-magic">魔法 (遠隔・凍結)</button>
+            <button id="btn-wp-back">戻る</button>
+        </div>
+
+        <div id="screen-pause" class="screen">
+            <h2>一時停止中</h2>
+            <button id="btn-resume">ゲーム再開</button>
+            <button id="btn-pause-howto">操作方法</button>
+            <button id="btn-to-title">タイトルへ戻る</button>
+        </div>
+
+        <div id="screen-result" class="screen">
+            <h2 id="result-title">GAME OVER</h2>
+            <p id="result-score">撃破数: 0</p>
+            <button id="btn-retry">もう一度プレイ</button>
+            <button id="btn-result-title">タイトルへ戻る</button>
+        </div>
+    </div>
+
+    <script src="js/weapon-data.js"></script>
+    <script src="js/bullet.js"></script>
+    <script src="js/stage.js"></script>
+    <script src="js/player.js"></script>
+    <script src="js/enemy.js"></script>
+    <script src="js/game-core.js"></script>
+    <script src="js/scene-manager.js"></script>
+    <script src="js/main.js"></script>
+</body>
+</html>
