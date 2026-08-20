@@ -1,11 +1,9 @@
 /**
  * ゲーム全体のメインシステムを管理するコアクラス
- * 3D空間のセットアップ、プレイヤーや敵の更新、当たり判定、ループ処理などを一括で行います
+ * 3D空間のセットアップ、プレイヤーや敵の更新、当たり判定、ループ処理、SAO風UIデザインを一括で行います
  */
-class GameCore
-{
-    constructor()
-    {
+class GameCore {
+    constructor() {
         // HTML上の描画用キャンバスを取得
         this.canvas = document.getElementById('game-canvas');
 
@@ -13,16 +11,18 @@ class GameCore
         this.isPaused = false;   // 一時停止中か
         this.isPlaying = false;  // ゲームプレイ中か
 
+        // 統計データ
+        this.score = 0;
+        this.killCount = 0;
+        this.startTime = 0;
+        this.elapsedTime = 0; // 秒
+        this.timerInterval = null;
+
         // 各種ゲームオブジェクトを管理する配列
         this.enemies = [];    // 出現中の敵（Enemyインスタンス）のリスト
         this.particles = [];  // 画面上のエフェクト粒子のリスト
         this.bullets = [];    // 画面上の弾丸（Bulletインスタンス）のリスト
         this.visualEffects = []; // 3Dメッシュによるスキル等のビジュアルエフェクトリスト
-
-        // ゲームクリア用の特殊ビジュアルエフェクト用配列
-        this.confettiList = []; // 舞い落ちる紙吹雪メッシュのリスト
-        this.celebrationIntervals = []; // 祝砲花火タイマーの管理リスト
-
 
         // 画面揺れ（スクリーンシェイク）の残り時間（フレーム数）
         this.shakeTime = 0;
@@ -31,9 +31,12 @@ class GameCore
         this.currentWave = 1;         // 現在のWave数
         this.maxWave = 3;             // 最大Wave数（3でボス戦）
         this.waveState = 'spawning';  // 'spawning'(出現中), 'playing'(戦闘中), 'interval'(休憩中), 'cleared'(全面クリア)
-        this.waveTimer = 0;           // インターバル用のタイマー（フレーム数または秒数換算用）
+        this.waveTimer = 0;           // インターバル用のタイマー
         this.waveEnemyCount = 0;      // このWaveで出現させる総敵数
         this.spawnedCount = 0;        // 既にスポーンした敵の数
+
+        // 🌐 SAO風UIスタイル・画面全体のデザイン統合の注入
+        this.injectSAOStyles();
 
         // Three.js の初期化処理を実行
         this.initThree();
@@ -41,355 +44,353 @@ class GameCore
         // ブラウザの画面サイズが変更されたら自動で描画サイズを調整するイベント
         window.addEventListener('resize', () => this.onResize());
 
-        // gameCore の constructor または初期設定内に追記
-        this.mouse = new THREE.Vector2(); // マウスの画面上の2D位置
-        this.mouseWorldPosition = new THREE.Vector3(); // 変換後の3D空間の床の座標
-        this.raycaster = new THREE.Raycaster(); // マウスの奥を検知する光線銃
+        // マウス位置管理
+        this.mouse = new THREE.Vector2();
+        this.mouseWorldPosition = new THREE.Vector3();
+        this.raycaster = new THREE.Raycaster();
 
         // マウスが動いたときに2D座標を常に更新するイベント
-        window.addEventListener('mousemove', (e) =>
-        {
-            // 画面全体の中心を (0,0) とした -1.0 〜 1.0 の座標に変換
+        window.addEventListener('mousemove', (e) => {
             this.mouse.x = (e.clientX / window.innerWidth) * 2 - 1;
             this.mouse.y = -(e.clientY / window.innerHeight) * 2 + 1;
         });
+
+        // SAO風UIモーダルの初期化
+        this.initResultModals();
     }
 
     /**
-     * Three.jsの基本コンポーネント（シーン、カメラ、レンダラー、ライト、地面）を構築
+     * SAO (ソードアート・オンライン) 風の近未来UIデザインをHTML全体とシステムに適用するスタイルシート注入
      */
-    initThree()
-    {
-        // 1. 3D空間（シーン）を作成し、背景色を深い紺色に設定
-        this.scene = new THREE.Scene();
-        this.scene.background = new THREE.Color(0x111118);
+    injectSAOStyles() {
+        if (document.getElementById('sao-theme-styles')) return;
 
-        // 2. camera（視野角60度、アスペクト比、クリッピング手前・奥）を作成し、斜め上空に配置
+        // Google Fonts の読み込み (Rajdhani & Orbitron)
+        const fontLink = document.createElement('link');
+        fontLink.rel = 'stylesheet';
+        fontLink.href = 'https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700;900&family=Rajdhani:wght@500;600;700&display=swap';
+        document.head.appendChild(fontLink);
+
+        const style = document.createElement('style');
+        style.id = 'sao-theme-styles';
+        style.innerHTML = `
+            /* SAO UI グローバル設定 */
+            body, button, input, select, textarea {
+                font-family: 'Rajdhani', 'Segoe UI', sans-serif !important;
+                letter-spacing: 1.2px;
+                color: #e0f0ff;
+            }
+
+            /* 背景をSAO風のダークディープブルーに統合 */
+            body {
+                background-color: #060913 !important;
+                overflow: hidden;
+            }
+
+            /* タイトル・メニュー・ダイアログ・各種画面パネルのSAO風統一枠 */
+            div[id$="-screen"], div[class*="menu"], div[class*="modal"], div[class*="dialog"], div[class*="panel"], div[style*="border"] {
+                background: linear-gradient(135deg, rgba(14, 20, 34, 0.92) 0%, rgba(6, 10, 18, 0.96) 100%) !important;
+                border: 1px solid rgba(0, 240, 255, 0.4) !important;
+                box-shadow: 0 0 25px rgba(0, 240, 255, 0.15), inset 0 0 15px rgba(0, 240, 255, 0.05) !important;
+                backdrop-filter: blur(10px);
+                border-radius: 6px !important;
+            }
+
+            /* 見出しテキストのSAO風ネオン発光 */
+            h1, h2, h3, .sao-title {
+                font-family: 'Orbitron', sans-serif !important;
+                font-weight: 900 !important;
+                color: #00f0ff !important;
+                text-shadow: 0 0 10px rgba(0, 240, 255, 0.6), 0 0 20px rgba(0, 240, 255, 0.3) !important;
+                text-transform: uppercase !important;
+                letter-spacing: 3px !important;
+            }
+
+            /* SAO ボタン共通スタイル（すべてのボタンを近未来デザインに変換） */
+            button, .sao-btn {
+                background: linear-gradient(135deg, rgba(20, 30, 50, 0.9) 0%, rgba(10, 15, 25, 0.95) 100%) !important;
+                color: #ffffff !important;
+                border: 1px solid #00f0ff !important;
+                border-left: 4px solid #00f0ff !important;
+                padding: 12px 28px !important;
+                font-size: 16px !important;
+                font-weight: 700 !important;
+                font-family: 'Rajdhani', 'Orbitron', sans-serif !important;
+                text-transform: uppercase !important;
+                cursor: pointer !important;
+                position: relative !important;
+                transition: all 0.25s cubic-bezier(0.2, 0.8, 0.2, 1) !important;
+                box-shadow: 0 0 10px rgba(0, 240, 255, 0.2), inset 0 0 15px rgba(0, 240, 255, 0.1) !important;
+                clip-path: polygon(0 0, calc(100% - 10px) 0, 100% 10px, 100% 100%, 10px 100%, 0 calc(100% - 10px)) !important;
+                margin: 8px 0 !important;
+            }
+
+            button:hover, .sao-btn:hover {
+                background: linear-gradient(135deg, rgba(0, 240, 255, 0.85) 0%, rgba(0, 120, 255, 0.95) 100%) !important;
+                color: #000000 !important;
+                border-color: #ffffff !important;
+                box-shadow: 0 0 25px rgba(0, 240, 255, 0.8), 0 0 40px rgba(0, 240, 255, 0.5) !important;
+                transform: scale(1.03) translateY(-2px) !important;
+            }
+
+            button:active, .sao-btn:active {
+                transform: scale(0.98) translateY(0) !important;
+            }
+
+            /* HUD (スコア/キル/タイマー) のSAO風装飾 */
+            #score-text, #kill-text, #timer-text, #wave-hud {
+                font-family: 'Orbitron', sans-serif !important;
+                font-weight: 700 !important;
+                color: #00f0ff !important;
+                text-shadow: 0 0 8px rgba(0, 240, 255, 0.6) !important;
+            }
+
+            /* SAO システムアナウンス */
+            #wave-announce {
+                font-family: 'Orbitron', sans-serif !important;
+                font-weight: 900 !important;
+                letter-spacing: 3px !important;
+                text-shadow: 0 0 15px rgba(0, 240, 255, 0.8), 0 0 30px rgba(0, 120, 255, 0.5) !important;
+            }
+        `;
+        document.head.appendChild(style);
+    }
+
+    /**
+     * Three.jsの基本コンポーネント構築
+     */
+    initThree() {
+        this.scene = new THREE.Scene();
+        this.scene.background = new THREE.Color(0x060913);
+
         this.camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
         this.camera.position.set(0, 15, 12);
-        this.camera.lookAt(0, 0, 0); // 原点（中心）を向く
+        this.camera.lookAt(0, 0, 0);
 
-        // 3. レンダラー（描画処理マシン）を作成し、キャンバスのサイズを画面いっぱいに広げる
         this.renderer = new THREE.WebGLRenderer({ canvas: this.canvas, antialias: true });
         this.renderer.setSize(window.innerWidth, window.innerHeight);
-        this.renderer.shadowMap.enabled = true; // 影の表現を有効化
+        this.renderer.shadowMap.enabled = true;
 
-        // 4. 照明（ライト）の追加
-        // 環境光（全体を均等に薄暗く照らす光）
-        const ambientLight = new THREE.AmbientLight(0xffffff, 0.4);
+        const ambientLight = new THREE.AmbientLight(0xffffff, 0.5);
         this.scene.add(ambientLight);
 
-        // 平行光源（太陽光のように特定の方角から差し込む強い光）
-        const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
+        const dirLight = new THREE.DirectionalLight(0xffffff, 0.9);
         dirLight.position.set(10, 20, 10);
         this.scene.add(dirLight);
 
-        // 照準用の細いリング（半径0.6、チューブの太さ0.05）を生成
-        const reticleGeo = new THREE.TorusGeometry(0.6, 0.05, 8, 32);
-        // 魔法らしく、少し発光するマテリアル（色は薄い紫など）
+        const reticleGeo = new THREE.TorusGeometry(0.6, 0.04, 8, 32);
         this.reticleMat = new THREE.MeshBasicMaterial({
-            color: 0xaa00ff,
+            color: 0x00f0ff,
             transparent: true,
-            opacity: 0.6
+            opacity: 0.8
         });
         this.reticle = new THREE.Mesh(reticleGeo, this.reticleMat);
 
-        // リングが地面と水平（床に張り付く形）になるように90度回転
         this.reticle.rotation.x = Math.PI / 2;
-        this.reticle.visible = false; // 最初は非表示
+        this.reticle.visible = false;
         this.scene.add(this.reticle);
     }
 
-    /**
-     * ゲームを新しく開始するメソッド
-     * @param {string} weaponType - 選択された武器の種類 ('sword', 'axe', 'magic')
-     */
-    start(weaponType)
-    {
-        // 前回の残骸を綺麗にクリーンアップ
+    start(weaponType) {
         this.clearScene();
 
-        // ゲーム中フラグをONにする
+        const resultModal = document.getElementById('result-modal-container');
+        if (resultModal) {
+            const clearM = document.getElementById('clear-modal');
+            const overM = document.getElementById('over-modal');
+            if (clearM) clearM.style.display = 'none';
+            if (overM) overM.style.display = 'none';
+        }
+
         this.isPlaying = true;
         this.isPaused = false;
 
-        // Wave状態のリセット
         this.currentWave = 1;
         this.waveState = 'spawning';
         this.spawnedCount = 0;
 
-        // Wave 1 の敵の数を設定（例: 雑魚8体）※進行テスト用に少し減らしてもOKです
+        this.score = 0;
+        this.killCount = 0;
+        this.startTime = Date.now();
+        this.elapsedTime = 0;
+        this.updateHUD();
+
+        if (this.timerInterval) clearInterval(this.timerInterval);
+        this.timerInterval = setInterval(() => {
+            if (this.isPlaying && !this.isPaused) {
+                this.elapsedTime = Math.floor((Date.now() - this.startTime) / 1000);
+                this.updateTimerHUD();
+            }
+        }, 1000);
+
         this.waveEnemyCount = 8;
 
-        // ✨【UI連携】画面上部のWaveカウンターHUDを表示状態にする
         const waveHud = document.getElementById('wave-hud');
-        if (waveHud)
-        {
-            waveHud.classList.add('active');
+        if (waveHud) waveHud.classList.add('active');
+
+        if (typeof Stage !== 'undefined') {
+            this.stage = new Stage(this.scene);
         }
 
-        // 新しいステージと障害物の生成
-        this.stage = new Stage(this.scene);
-
-        // プレイヤーを生成
         this.player = new Player(this.scene, weaponType);
 
-        if (weaponType === 'magic')
-        {
+        if (weaponType === 'magic') {
             this.reticle.visible = true;
-            this.reticleMat.color.setHex(0xaa00ff); // 魔法通常弾の紫
-        }
-        else
-        {
-            this.reticle.visible = false; // 剣や斧の時は隠す
+            this.reticleMat.color.setHex(0x00f0ff);
+        } else {
+            this.reticle.visible = false;
         }
 
-        // プレイヤーからこのGameCore内の「spawnBullet」などを呼べるように、自分自身の参照を渡す
         this.player.gameCore = this;
-
-        // 開幕時に最初の数体を即座に出現させるロジックへ移行
         this.startNextWave();
     }
 
-    /**
-     * 敵をランダムな位置に新しく出現させる
-     * @param {boolean} isBoss - ボスを生成するかどうか
-     */
-    spawnEnemy(isBoss = false)
-    {
-        // ボスではない場合のみ、同時存在上限（10体）をチェックする
-        if (!isBoss && this.enemies.length >= 10)
-        {
-            return;
-        }
+    spawnEnemy(isBoss = false) {
+        if (!isBoss && this.enemies.length >= 10) return;
 
         let type = 'melee';
-        if (isBoss)
-        {
-            type = 'boss'; // Enemyクラス側でボスとして識別させるためのタイプ名
-        }
-        else
-        {
-            // 通常時は近接型（melee）か遠隔型（range）かをランダムで決定
+        if (isBoss) {
+            type = 'boss';
+        } else {
             const types = ['melee', 'range'];
             type = types[Math.floor(Math.random() * types.length)];
         }
 
-        // プレイヤーの現在位置を中心とした、半径10〜15マスのランダムな円周上の座標を計算
         const angle = Math.random() * Math.PI * 2;
         const radius = 10 + Math.random() * 5;
         const px = this.player.mesh.position.x + Math.cos(angle) * radius;
         const pz = this.player.mesh.position.z + Math.sin(angle) * radius;
 
-        // 1. 計算した座標に敵（Enemy）のインスタンスを作成
         const enemy = new Enemy(this.scene, this.player, type, new THREE.Vector3(px, 0, pz));
-
-        // 2. 敵が遠隔攻撃の弾を撃てるように、GameCoreへの参照を教えてあげる
         enemy.gameCore = this;
-
-        // 3. 管理用の配列に登録する
         this.enemies.push(enemy);
-
         this.spawnedCount++;
     }
 
-    /**
-     * 外部（PlayerやEnemy）から呼び出されて、新しい弾丸を画面内に生成する窓口関数
-     */
-    spawnBullet(position, direction, speed, damage, isPlayerBullet, color, size, isSkill)
-    {
-        // 拡張した引数をそのまま Bullet のコンストラクタに横流しする
+    spawnBullet(position, direction, speed, damage, isPlayerBullet, color, size, isSkill) {
         const bullet = new Bullet(this.scene, position, direction, speed, damage, isPlayerBullet, color, size, isSkill);
         this.bullets.push(bullet);
-
-        // 生成したインスタンスを呼び出し元に返すようにする（念のため）
         return bullet;
     }
 
-    /**
-     * 指定された位置に、飛び散る光の粒子（エフェクト）を生成する
-     */
-    createParticleEffect(position, color, count)
-    {
-        for (let i = 0; i < count; i++)
-        {
-            // 極小の球体を生成
+    createParticleEffect(position, color, count) {
+        for (let i = 0; i < count; i++) {
             const pGeom = new THREE.SphereGeometry(0.1, 4, 4);
             const pMat = new THREE.MeshBasicMaterial({ color: color });
             const pMesh = new THREE.Mesh(pGeom, pMat);
             pMesh.position.copy(position);
 
-            // 四方八方、および上方向へランダムに飛び散る「初速度ベクトル」を計算
             const velocity = new THREE.Vector3(
                 (Math.random() - 0.5) * 0.3,
-                Math.random() * 0.3, // Y軸（上方向）には必ずプラスの力が働くようにする
+                Math.random() * 0.3,
                 (Math.random() - 0.5) * 0.3
             );
 
             this.scene.add(pMesh);
-            // 配列にメッシュ、速度、速度、そして寿命（30フレーム＝約0.5秒）を記録
             this.particles.push({ mesh: pMesh, vel: velocity, life: 30 });
         }
     }
 
-    /**
-     * 剣・斧のスキル用の派手な3Dビジュアルエフェクトを生成するメソッド
-     * @param {string} type - エフェクトの種類 ('sword-skill' または 'axe-skill')
-     * @param {THREE.Vector3} position - 発生させる中心座標
-     * @param {number} radius - 最大サイズ（判定に合わせる）
-     */
-    spawnVisualEffect(type, position, radius)
-    {
+    spawnVisualEffect(type, position, radius) {
         let geom, mat, mesh;
 
-        if (type === 'sword-skill')
-        {
-            // ⚔️ 剣のスキル：水平に広がる太い「光の輪（リング）」
+        if (type === 'sword-skill') {
             geom = new THREE.TorusGeometry(0.1, 0.2, 8, 32);
             mat = new THREE.MeshBasicMaterial({
-                color: 0x33ccff,      // 鮮やかな水色
+                color: 0x00f0ff,
                 transparent: true,
                 opacity: 0.8,
                 side: THREE.DoubleSide
             });
             mesh = new THREE.Mesh(geom, mat);
-            mesh.rotation.x = Math.PI / 2; // 床と水平にする
+            mesh.rotation.x = Math.PI / 2;
             mesh.position.copy(position);
-            mesh.position.y = 0.5; // プレイヤーの胴体の高さに浮かせる
+            mesh.position.y = 0.5;
         }
-        else if (type === 'axe-skill')
-        {
-            // 🪓 斧のスキル：地面を這う「衝撃波の円盤」
+        else if (type === 'axe-skill') {
             geom = new THREE.RingGeometry(0.01, 0.2, 32);
             mat = new THREE.MeshBasicMaterial({
-                color: 'orange',      // 衝撃波らしいオレンジ色
+                color: '#00f0ff',
                 transparent: true,
                 opacity: 0.9,
                 side: THREE.DoubleSide
             });
             mesh = new THREE.Mesh(geom, mat);
-            mesh.rotation.x = -Math.PI / 2; // 地面にぴったり張り付かせる
+            mesh.rotation.x = -Math.PI / 2;
             mesh.position.copy(position);
-            mesh.position.y = 0.05; // 床のチラつき防止にほんの少しだけ浮かせる
+            mesh.position.y = 0.05;
         }
 
-        if (mesh)
-        {
+        if (mesh) {
             this.scene.add(mesh);
-            // 配列に格納（寿命は15フレーム：約0.25秒でシュッと広がって消える設定）
             this.visualEffects.push({
-                type: type,
-                mesh: mesh,
-                maxRadius: radius,
-                currentProgress: 0, // 0.0 〜 1.0
-                life: 15,
-                maxLife: 15
+                type: type, mesh: mesh, maxRadius: radius,
+                currentProgress: 0, life: 15, maxLife: 15
             });
         }
     }
 
-    /**
-     * 画面揺れ（スクリーンシェイク）のトリガーを引く
-     */
-    triggerScreenShake()
-    {
-        this.shakeTime = 20; // 今から20フレームの間、カメラをガタガタ揺らす
+    triggerScreenShake() {
+        this.shakeTime = 20;
     }
 
-    /**
-     * メインのゲームループ処理（1秒間に約60回実行され、画面を動かします）
-     */
-    update()
-    {
-        // ゲームが始まっていない、または一時停止中の場合は何も処理しない
-        if (!this.isPlaying || this.isPaused)
-        {
-            return;
-        }
+    update() {
+        if (!this.isPlaying || this.isPaused) return;
 
-        // Waveの進行状態を毎フレームチェックする
         this.checkWaveProgress();
 
-        // gameCore の 毎フレーム呼ばれる update() メソッドの冒頭に追記
-        if (this.camera && this.player)
-        {
-            // カメラからマウスカーソルの方向に向けて見えない光線（Ray）を飛ばす
+        if (this.camera && this.player) {
             this.raycaster.setFromCamera(this.mouse, this.camera);
-
-            // 地面（高さ Y=0 の水平な板）を数式で定義
             const groundPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
-
-            // 光線がその地面の板と交わる「3Dの座標」を計算して this.mouseWorldPosition に格納
             this.raycaster.ray.intersectPlane(groundPlane, this.mouseWorldPosition);
 
-            if (this.reticle && this.reticle.visible)
-            {
-                // マウスが指す床の座標に照準リングを移動
+            if (this.reticle && this.reticle.visible) {
                 this.reticle.position.copy(this.mouseWorldPosition);
-                // 床（Y=0）と完全に重なってチラつかないよう、ごくわずかに上に浮かせる
                 this.reticle.position.y = 0.02;
             }
         }
 
-        // --- 1. プレイヤーの更新 ---
         this.player.update(
             this.enemies,
             () => this.triggerScreenShake(),
             (pos, col, cnt) => this.createParticleEffect(pos, col, cnt)
         );
 
-        // プレイヤーの移動直後にステージ・障害物との衝突判定（押し戻し）を適用
-        if (this.stage)
-        {
-            this.stage.checkCollision(this.player.mesh, 0.5); // 0.5はプレイヤーの半径
+        if (this.stage) {
+            this.stage.checkCollision(this.player.mesh, 0.5);
         }
 
-        // プレイヤーが死亡した場合は即座にループを抜け、ゲーム終了（敗北）へ移行
-        if (this.player.isDead)
-        {
-            this.gameOver(false); // ❌ プレイヤー死亡によるゲームオーバー
+        if (this.player.isDead) {
+            this.gameOver();
             return;
         }
 
-        // --- 2. カメラ追従 ＆ 画面揺れ演出 ---
         let camX = this.player.mesh.position.x;
-        let camZ = this.player.mesh.position.z + 12; // プレイヤーの少し手前上空をキープ
+        let camZ = this.player.mesh.position.z + 12;
 
-        // 画面揺れタイマーが残っている場合、座標をランダムに小刻みにズラす
-        if (this.shakeTime > 0)
-        {
+        if (this.shakeTime > 0) {
             camX += (Math.random() - 0.5) * 0.3;
             camZ += (Math.random() - 0.5) * 0.3;
-            this.shakeTime--; // タイマーを消費
+            this.shakeTime--;
         }
         this.camera.position.set(camX, 15, camZ);
-        this.camera.lookAt(this.player.mesh.position); // 常にプレイヤーを画面中央に捉える
+        this.camera.lookAt(this.player.mesh.position);
 
-        // --- 3Dビジュアルエフェクトの更新 ＆ 寿命制御 ---
-        for (let i = this.visualEffects.length - 1; i >= 0; i--)
-        {
+        for (let i = this.visualEffects.length - 1; i >= 0; i--) {
             const fx = this.visualEffects[i];
             fx.life--;
-
-            // 進捗度を 0.0 (発生) から 1.0 (消滅) で計算
             fx.currentProgress = 1.0 - (fx.life / fx.maxLife);
 
-            // 1. サイズの動的変更（進捗に合わせて最大半径まで一気に広げる）
-            const scale = fx.currentProgress * fx.maxRadius * 5; // 元のジオメトリサイズに合わせる倍率調整
+            const scale = fx.currentProgress * fx.maxRadius * 5;
             fx.mesh.scale.set(scale, scale, scale);
 
-            // 2. 特有の動き（剣なら高速大回転させる）
-            if (fx.type === 'sword-skill')
-            {
-                fx.mesh.rotation.z += 0.4; // Z軸方向（水平に寝かせたリングの回転面）へ回転
+            if (fx.type === 'sword-skill') {
+                fx.mesh.rotation.z += 0.4;
             }
 
-            // 3. 透明度のフェードアウト（消滅間際にスッと薄くする）
             fx.mesh.material.opacity = (1.0 - fx.currentProgress) * 0.8;
 
-            // 寿命が尽きたエフェクトは空間と配列からきれいに消去
-            if (fx.life <= 0)
-            {
+            if (fx.life <= 0) {
                 this.scene.remove(fx.mesh);
                 fx.mesh.geometry.dispose();
                 fx.mesh.material.dispose();
@@ -397,551 +398,457 @@ class GameCore
             }
         }
 
-        // --- 3. 弾丸の更新と衝突（ヒット）判定 ---
-        for (let i = this.bullets.length - 1; i >= 0; i--)
-        {
+        for (let i = this.bullets.length - 1; i >= 0; i--) {
             const bullet = this.bullets[i];
-            bullet.update(); // 弾を前進させる
+            bullet.update();
 
-            // 寿命が尽きて死んだ弾は配列から除去して次の弾の処理へ
-            if (bullet.isDead)
-            {
+            if (bullet.isDead) {
                 this.bullets.splice(i, 1);
                 continue;
             }
 
-            // 弾丸とステージの障害物・外周との衝突判定
             let bulletHitObstacle = false;
-            if (this.stage)
-            {
+            if (this.stage) {
                 const bPos = bullet.mesh.position;
-
-                // ① ステージの外に出たら消滅
                 const distFromCenter = Math.sqrt(bPos.x * bPos.x + bPos.z * bPos.z);
-                if (distFromCenter > this.stage.radius)
-                {
-                    bulletHitObstacle = true;
-                }
+                if (distFromCenter > this.stage.radius) bulletHitObstacle = true;
 
-                // ② 内側の障害物のどれかに当たったら消滅
-                this.stage.obstacles.forEach(obs =>
-                {
+                this.stage.obstacles.forEach(obs => {
                     const dx = bPos.x - obs.position.x;
                     const dz = bPos.z - obs.position.z;
-                    const distToObs = Math.sqrt(dx * dx + dz * dz);
-
-                    // 弾自体のサイズを考慮（だいたい0.2〜0.5マス程度）
-                    if (distToObs < obs.radius + 0.2)
-                    {
-                        bulletHitObstacle = true;
-                    }
+                    if (Math.sqrt(dx * dx + dz * dz) < obs.radius + 0.2) bulletHitObstacle = true;
                 });
             }
 
-            // 障害物に衝突していた場合のクリーンアップ処理
-            if (bulletHitObstacle)
-            {
-                // 障害物に当たったエフェクト（薄いグレーか、弾の色に合わせた火花）を散らす
+            if (bulletHitObstacle) {
                 this.createParticleEffect(bullet.mesh.position, 0xaaaaaa, 6);
                 bullet.destroy();
                 this.bullets.splice(i, 1);
-                continue; // この弾の処理はここまで。次の弾へ
+                continue;
             }
 
-            // A. プレイヤーが撃った弾の場合 → 敵との当たり判定
-            if (bullet.isPlayerBullet)
-            {
-                for (let j = this.enemies.length - 1; j >= 0; j--)
-                {
+            if (bullet.isPlayerBullet) {
+                for (let j = this.enemies.length - 1; j >= 0; j--) {
                     const enemy = this.enemies[j];
-
-                    // 高さ(Y)を無視した2D平面上での弾と敵の距離を計算（当たりやすさ向上のため）
                     const dist = new THREE.Vector2(bullet.mesh.position.x, bullet.mesh.position.z)
                         .distanceTo(new THREE.Vector2(enemy.mesh.position.x, enemy.mesh.position.z));
-
-                    // スキル大魔導弾なら1.5、通常弾なら1.0の距離以内で「ヒット」とみなす
+                    
                     const hitRadius = bullet.isSkill ? 1.5 : 1.0;
 
-                    if (dist < hitRadius)
-                    {
-                        if (bullet.isSkill)
-                        {
-                            // スキル弾なら大爆発を発動
+                    if (dist < hitRadius) {
+                        if (bullet.isSkill) {
                             bullet.explode(this.enemies, this);
-                        } else
-                        {
-                            // 通常弾なら、当たったその敵単体にダメージを与え、紫の火花を散らす
+                        } else {
                             enemy.takeDamage(bullet.damage, bullet.mesh.position);
-                            this.player.gainSkill(15); // 通常弾命中でスキルゲージを溜める
-                            this.createParticleEffect(bullet.mesh.position, 0xaa00ff, 12);
+                            this.player.gainSkill(15);
+                            this.createParticleEffect(bullet.mesh.position, 0x00f0ff, 12);
                         }
-
-                        // 当たった弾を消滅させて配列から取り除く
                         bullet.destroy();
                         this.bullets.splice(i, 1);
-                        break; // この弾の判定は終了。次の弾の処理へ
+                        break;
                     }
                 }
-            }
-            // B. 敵が撃った弾の場合 → プレイヤーとの当たり判定
-            else
-            {
+            } else {
                 const dist = new THREE.Vector2(bullet.mesh.position.x, bullet.mesh.position.z)
                     .distanceTo(new THREE.Vector2(this.player.mesh.position.x, this.player.mesh.position.z));
 
-                // 敵の弾がプレイヤーの半径1.0以内に近づいたらヒット
-                if (dist < 1.0)
-                {
-                    // 【重複バグ修正】：第3引数にボスのスキル弾かどうかのフラグを渡して、PlayerのtakeDamageを呼び出すだけにする
+                if (dist < 1.0) {
                     this.player.takeDamage(bullet.damage, bullet.mesh.position, bullet.isSkill || false);
-
-                    // ❌【削除】：ここで直接 createPlayerDamagePopup を呼んでいたブロックを消去！
-                    // ポップアップ生成はプレイヤー側の takeDamage が「一律安全に」実行します。
-
-                    // 被弾した場所に敵の魔力カラー（黄色）の火花を散らす
-                    this.createParticleEffect(bullet.mesh.position, 0xdddd33, 12);
-
-                    // 弾を消去
+                    this.createParticleEffect(bullet.mesh.position, 0xff3355, 12);
                     bullet.destroy();
                     this.bullets.splice(i, 1);
                 }
             }
         }
 
-        // --- 4. 敵キャラクターのAI更新 ＆ 死亡判定 ---
-        for (let i = this.enemies.length - 1; i >= 0; i--)
-        {
+        for (let i = this.enemies.length - 1; i >= 0; i--) {
             const enemy = this.enemies[i];
-
-            // 頭上のHPバー描画を正常に行うため、引数にカメラを渡して更新
             enemy.update(this.camera);
 
-            // 敵の移動直後にステージ・障害物との衝突判定（押し戻し）を適用
-            if (this.stage)
-            {
+            if (this.stage) {
                 const enemyRadius = enemy.type === 'melee' ? 0.5 : 0.4;
                 this.stage.checkCollision(enemy.mesh, enemyRadius);
             }
 
-            // 敵のHPが0以下（死亡）になった場合の処理
-            if (enemy.hp <= 0)
-            {
-                // 撃破された場所に赤い血しぶき風のパーティクルを散らす
-                this.createParticleEffect(enemy.mesh.position, 0xff0000, 15);
-                enemy.destroy(); // 3D空間から消去
-                this.enemies.splice(i, 1); // 管理配列から削除
-                this.player.score++; // スコア（討伐数）を加算
+            if (enemy.hp <= 0) {
+                this.createParticleEffect(enemy.mesh.position, 0x00f0ff, 18);
+                enemy.destroy();
+                this.enemies.splice(i, 1);
+                
+                this.score += (enemy.type === 'boss' ? 1000 : 100);
+                this.killCount++;
+                this.updateHUD();
             }
         }
 
-        // --- 5. パーティクル（エフェクト粒子）の移動と寿命更新 ---
-        for (let i = this.particles.length - 1; i >= 0; i--)
-        {
+        for (let i = this.particles.length - 1; i >= 0; i--) {
             const p = this.particles[i];
-            p.mesh.position.add(p.vel); // 初速度に従って動かす
-            p.life--; // 寿命を減らす
+            p.mesh.position.add(p.vel);
+            p.life--;
 
-            // 寿命が尽きたエフェクトは空間から消す
-            if (p.life <= 0)
-            {
+            if (p.life <= 0) {
                 this.scene.remove(p.mesh);
                 this.particles.splice(i, 1);
             }
         }
 
-        // すべてのオブジェクトの位置が更新し終わったら、最新の状態で画面を1コマレンダリング（再描画）
         this.renderer.render(this.scene, this.camera);
     }
 
-    /**
-     * 外部（UIなど）からゲームの一時停止/再開を切り替える
-     */
-    setPause(pause)
-    {
+    setPause(pause) {
         this.isPaused = pause;
     }
 
-    /**
-     * 新しいWaveの開始処理
-     */
-    startNextWave()
-    {
+    startNextWave() {
         this.waveState = 'spawning';
         this.spawnedCount = 0;
 
-        // Wave数に応じて敵の数を調整
-        if (this.currentWave === 1)
-        {
-            this.waveEnemyCount = 4;
-        }
-        else if (this.currentWave === 2)
-        {
-            this.waveEnemyCount = 7;
-        }
-        else if (this.currentWave === 3)
-        {
-            this.waveEnemyCount = 4; // 【修正】ボス1体 + 取り巻き3体 = 計4体
-        }
+        if (this.currentWave === 1) this.waveEnemyCount = 4;
+        else if (this.currentWave === 2) this.waveEnemyCount = 7;
+        else if (this.currentWave === 3) this.waveEnemyCount = 4;
 
-        // ✨【UI連携】画面上部カウンターを現在のWaveに更新
         const waveHud = document.getElementById('wave-hud');
-        if (waveHud)
-        {
-            waveHud.innerText = `WAVE ${this.currentWave}`;
-        }
+        if (waveHud) waveHud.innerText = `FLOOR / WAVE ${this.currentWave}`;
 
-        // ✨【UI連携】画面中央にWave開始アナウンスをポップアップ表示
         const announce = document.getElementById('wave-announce');
-        if (announce)
-        {
-            if (this.currentWave === this.maxWave)
-            {
-                announce.innerText = "⚠️ BOSS WAVE START ⚠️";
-                announce.style.color = "#ff3333"; // ボス戦は赤文字で警告
-            } else
-            {
+        if (announce) {
+            if (this.currentWave === this.maxWave) {
+                announce.innerText = "⚠️ SYSTEM WARNING: BOSS ENCOUNTER ⚠️";
+                announce.style.color = "#ff3355";
+            } else {
                 announce.innerText = `WAVE ${this.currentWave} START`;
-                announce.style.color = "#ffcc00"; // 通常はゴールド
+                announce.style.color = "#00f0ff";
             }
             announce.style.display = "block";
-
-            // 2秒後にアナウンスを自動で消去するタイマー
-            setTimeout(() =>
-            {
-                // まだインターバル状態に移行していなければ非表示にする（重複上書き防止）
-                if (this.waveState !== 'interval' && this.isPlaying)
-                {
-                    announce.style.display = "none";
-                }
+            setTimeout(() => {
+                if (this.waveState !== 'interval' && this.isPlaying) announce.style.display = "none";
             }, 2000);
         }
 
-        console.log(`WAVE ${this.currentWave} 開始！ 敵の数: ${this.waveEnemyCount}`);
-
-        // === 敵の生成処理 ===
-        if (this.currentWave < 3)
-        {
-            // 【修正】出し惜しみせず、このWaveに必要な敵（4体または7体）を最初から一気に全頭生成する
-            for (let i = 0; i < this.waveEnemyCount; i++)
-            {
-                this.spawnEnemy();
-            }
+        if (this.currentWave < 3) {
+            for (let i = 0; i < this.waveEnemyCount; i++) this.spawnEnemy();
             this.waveState = 'playing';
-        }
-        else
-        {
-            // === Wave 3 (ボス戦) の処理 ===
-            // ① ボス本体を生成（引数 true）
+        } else {
             this.spawnEnemy(true);
-
-            // ② 【追加】ボスの取り巻き（ザコ敵）3体を同時に生成（引数 false）
-            for (let i = 0; i < 3; i++)
-            {
-                this.spawnEnemy(false);
-            }
-
+            for (let i = 0; i < 3; i++) this.spawnEnemy(false);
             this.waveState = 'playing';
         }
     }
 
-    /**
-     * 毎フレームのWave進行チェック（全滅検知とインターバル管理）
-     */
-    checkWaveProgress()
-    {
-        // 1. 戦闘中、かつ画面上の敵が全滅したかをチェック
-        if (this.waveState === 'playing' && this.enemies.length === 0)
-        {
-            // まだ規定のスポーン数に達していない場合は追加でスポーンさせる（Wave2用など）
-            if (this.spawnedCount < this.waveEnemyCount)
-            {
+    checkWaveProgress() {
+        if (this.waveState === 'playing' && this.enemies.length === 0) {
+            if (this.spawnedCount < this.waveEnemyCount) {
                 this.spawnEnemy();
                 return;
             }
 
-            // 全滅していればインターバル（休憩）へ移行
-            if (this.currentWave < this.maxWave)
-            {
+            if (this.currentWave < this.maxWave) {
                 this.waveState = 'interval';
-                this.waveTimer = 60 * 5; // 5秒間のインターバル（60fps × 5秒 = 300フレーム）
-                console.log("Waveクリア！次のWaveまでインターバル。");
-            } else
-            {
-                // すべてのWave（ボス含む）をクリアした場合
+                this.waveTimer = 60 * 5; 
+            } else {
                 this.waveState = 'cleared';
-                console.log("全Waveクリア！ゲーム勝利！");
-
-                this.gameOver(true); // 🏆 ボス撃破によるゲームクリア！
+                this.gameClear();
                 return;
             }
         }
 
-        // 2. インターバル中のカウントダウン処理
-        if (this.waveState === 'interval')
-        {
+        if (this.waveState === 'interval') {
             this.waveTimer--;
-
-            // ✨【UI連携】中央にカウントダウン秒数をリアルタイム表示
             const announce = document.getElementById('wave-announce');
-            if (announce)
-            {
+            if (announce) {
                 const remainingSeconds = Math.ceil(this.waveTimer / 60);
-                announce.innerText = `NEXT WAVE IN ${remainingSeconds}`;
-                announce.style.color = "#ffffff";
+                announce.innerText = `NEXT WAVE IN ${remainingSeconds}S`;
+                announce.style.color = "#00f0ff";
                 announce.style.display = "block";
             }
-
-            if (this.waveTimer <= 0)
-            {
-                // 5秒経過したら次のWaveへ
+            if (this.waveTimer <= 0) {
                 this.currentWave++;
                 this.startNextWave();
             }
         }
     }
 
-    /**
-     * ステージ上のすべてのオブジェクトを完全に消去し、配列を空にする（初期化用）
-     */
-    clearScene()
-    {
-        // 敵ポップ用の定時タイマー（インターバル）をストップ
+    clearScene() {
         clearInterval(this.spawnTimer);
-
-        // 3D空間からの除去とメモリ解放
         this.enemies.forEach(e => e.destroy());
         this.particles.forEach(p => this.scene.remove(p.mesh));
         this.bullets.forEach(b => b.destroy());
-
-        // 残っているビジュアルエフェクトの破棄
-        this.visualEffects.forEach(fx =>
-        {
+        this.visualEffects.forEach(fx => {
             this.scene.remove(fx.mesh);
             fx.mesh.geometry.dispose();
             fx.mesh.material.dispose();
         });
 
-        // 古いステージがある場合、障害物を安全に完全削除する
-        if (this.stage)
-        {
-            this.stage.destroy();
-        }
+        if (this.stage) this.stage.destroy();
 
-        // シーン内に残ってしまっている古いメッシュ（床や壁、障害物の残骸）を強制一掃
-        for (let i = this.scene.children.length - 1; i >= 0; i--)
-        {
+        for (let i = this.scene.children.length - 1; i >= 0; i--) {
             const child = this.scene.children[i];
-
-            // プレイヤーと照準リング以外の、ステージを構成していたメッシュやヘルパーを強制消去
-            if (child.userData.isObstacle ||
-                (child instanceof THREE.Mesh && child !== this.reticle && (!this.player || child !== this.player.mesh)))
-            {
+            if (child.userData.isObstacle || (child instanceof THREE.Mesh && child !== this.reticle && (!this.player || child !== this.player.mesh))) {
                 this.scene.remove(child);
                 if (child.geometry) child.geometry.dispose();
-                if (child.material)
-                {
+                if (child.material) {
                     if (Array.isArray(child.material)) child.material.forEach(m => m.dispose());
                     else child.material.dispose();
                 }
             }
         }
         this.stage = null;
+        this.enemies = []; this.particles = []; this.bullets = []; this.visualEffects = [];
+        if (this.reticle) this.reticle.visible = false;
+        if (this.player) { this.player.destroy(); this.player = null; }
 
-        // 配列を空っぽに初期化
-        this.enemies = [];
-        this.particles = [];
-        this.bullets = [];
-        this.visualEffects = []; // 初期化
-
-        if (this.reticle)
-        {
-            this.reticle.visible = false;
-        }
-
-        // プレイヤーのインスタンスも削除
-        if (this.player)
-        {
-            this.player.destroy();
-            this.player = null;
-        }
-
-        // ✨【UI連携】Wave関連のHUDUIを非表示にクリーンアップ
         const waveHud = document.getElementById('wave-hud');
         const waveAnnounce = document.getElementById('wave-announce');
         if (waveHud) waveHud.classList.remove('active');
         if (waveAnnounce) waveAnnounce.style.display = 'none';
     }
 
-    /**
-     * ウィンドウサイズが変更された時、画面が引き伸ばされないようにカメラの比率を修正する
-     */
-    onResize()
-    {
+    onResize() {
         this.camera.aspect = window.innerWidth / window.innerHeight;
         this.camera.updateProjectionMatrix();
         this.renderer.setSize(window.innerWidth, window.innerHeight);
     }
 
-    /**
-     * ゲーム終了（ゲームオーバーまたはゲームクリア）を処理する統合メソッド
-     * @param {boolean} isWin - クリア（勝利）した場合はtrue、ゲームオーバー（敗北）はfalse
-     */
-    gameOver(isWin = false)
-    {
+    gameClear() {
+        if (!this.isPlaying) return;
         this.isPlaying = false;
+        if (this.timerInterval) clearInterval(this.timerInterval);
 
-        // プレイヤーの更新を止めるために状態をロック
-        if (this.player)
-        {
-            this.player.isDead = true;
+        const timeBonus = Math.max(0, 300 - this.elapsedTime) * 10;
+        this.score += timeBonus;
+        this.updateHUD();
+
+        const oldResultScreen = document.getElementById('game-over-screen') || document.getElementById('result-screen');
+        if (oldResultScreen) {
+            oldResultScreen.style.display = 'none';
         }
 
-        // HTML上のUI要素（タイトル、リザルト画面）を自動検出
-        const resultScreen = document.getElementById('game-over-screen') || document.getElementById('result-screen');
-        const resultTitle = document.getElementById('game-over-title') || document.getElementById('result-title') || (resultScreen ? resultScreen.querySelector('h1') : null);
-        const scoreValue = document.getElementById('score-value') || document.getElementById('final-score');
+        this.showClearModal(timeBonus);
 
-        // 1. リザルト画面を表示する
-        if (resultScreen)
-        {
-            resultScreen.style.display = 'flex';
-            resultScreen.classList.add('active');
-        }
-
-        // 2. 勝敗（クリアか否か）に応じてテキストと見た目を華やかに切り替える
-        if (resultTitle)
-        {
-            if (isWin)
-            {
-                resultTitle.innerText = "🏆 GAME CLEAR 🏆";
-                resultTitle.style.color = "#ffcc00"; // ゴージャスなゴールド色
-                resultTitle.style.textShadow = "0 0 10px #ffcc00, 0 0 20px #ffaa00, 0 0 40px #ff3300";
-            }
-            else
-            {
-                resultTitle.innerText = "💥 GAME OVER 💥";
-                resultTitle.style.color = "#ff3333"; // 危険・敗北を現すレッド色
-                resultTitle.style.textShadow = "0 0 10px #ff3333, 0 0 20px #990000";
-            }
-        }
-
-        // 3. 最終討伐スコアを画面に反映
-        if (scoreValue && this.player)
-        {
-            scoreValue.innerText = this.player.score;
-        }
-
-        // 4. 既存のコールバックがあれば通知する（シーンマネージャーとの互換性維持）
-        if (this.onGameOverCallback)
-        {
-            this.onGameOverCallback(this.player ? this.player.score : 0, isWin);
+        if (this.onGameOverCallback) {
+            this.onGameOverCallback(this.score, true);
         }
     }
 
-    /**
-     * プレイヤーの被ダメージポップアップを画面上に生成する
-     * @param {number} amount - ダメージ数値
-     * @param {THREE.Vector3} position - プレイヤーの現在位置
-     * @param {boolean} isBoss - ボスからの攻撃かどうか
-     */
-    createPlayerDamagePopup(amount, position, isBoss)
-    {
-        // 1. HTML要素（DOM）の作成
+    gameOver() {
+        if (!this.isPlaying) return;
+        this.isPlaying = false;
+        if (this.player) this.player.isDead = true;
+        if (this.timerInterval) clearInterval(this.timerInterval);
+
+        const oldResultScreen = document.getElementById('game-over-screen') || document.getElementById('result-screen');
+        if (oldResultScreen) {
+            oldResultScreen.style.display = 'none';
+        }
+
+        this.showGameOverModal();
+
+        if (this.onGameOverCallback) {
+            this.onGameOverCallback(this.score, false);
+        }
+    }
+
+    createPlayerDamagePopup(amount, position, isBoss) {
         const popup = document.createElement('div');
         popup.innerText = Math.round(amount);
-
-        // 2. スタイリング（プレイヤー被弾は危険を表す赤！）
         popup.style.position = 'absolute';
-        popup.style.color = '#ff3333'; // 鮮烈な赤
+        popup.style.color = '#ff3355';
         popup.style.fontWeight = 'bold';
-        popup.style.fontFamily = 'Arial, sans-serif';
-        // 黒い縁取りをつけて、どんな背景でも数字を見やすくする
-        popup.style.textShadow = '2px 2px 0px #000, -1px -1px 0px #000, 1px -1px 0px #000, -1px 1px 0px #000';
+        popup.style.fontFamily = "'Orbitron', sans-serif";
+        popup.style.textShadow = '0 0 10px rgba(255, 51, 85, 0.8), 2px 2px 0px #000';
         popup.style.pointerEvents = 'none';
         popup.style.userSelect = 'none';
         popup.style.zIndex = '9999';
 
-        // 3. サイズ決定（ボス攻撃ならさらに大きくして危機感を演出！）
-        const baseFontSize = isBoss ? 34 : 24;
+        const baseFontSize = isBoss ? 36 : 26;
         popup.style.fontSize = `${baseFontSize}px`;
-
         document.body.appendChild(popup);
 
-        // 4. アニメーション用の初期パラメータ（左右に激しく飛び散る）
         const startTime = Date.now();
-        const duration = 800; // 0.8秒で消滅
-
-        // 飛び散る速度（ボスの方がより激しく弾け飛ぶ）
+        const duration = 800;
         const speedMultiplier = isBoss ? 6 : 4;
         const velX = (Math.random() - 0.5) * speedMultiplier;
-        const velY = (isBoss ? 7 : 5) + Math.random() * 3; // 上方向への初速
+        const velY = (isBoss ? 7 : 5) + Math.random() * 3;
 
         let offsetX = 0;
         let offsetY = 0;
-
-        // 3D位置の複製（プレイヤーが移動しても、ポップアップはその場に残って飛び散る）
         const initialPos = position.clone();
-        initialPos.y += 1.2; // プレイヤーの胸・頭あたりから湧き出させる
+        initialPos.y += 1.2;
 
-        // 5. アニメーションのループ処理
-        const animate = () =>
-        {
+        const animate = () => {
             const elapsed = Date.now() - startTime;
             const progress = elapsed / duration;
 
-            // 寿命が尽きたら要素を消去して終了
-            if (progress >= 1.0)
-            {
+            if (progress >= 1.0 || !this.camera) {
                 popup.remove();
                 return;
             }
 
-            // 万が一カメラなどが消失していた場合の安全ガード
-            if (!this.camera)
-            {
-                popup.remove();
-                return;
-            }
-
-            // 重力と速度のシミュレーション
             const t = elapsed / 1000;
             offsetX += velX;
-            // 初速から重力（15）による落下を計算
-            const currentVelY = velY - (15 * t);
-            offsetY += currentVelY;
+            offsetY += velY - (15 * t);
 
-            // 3D空間の座標を、2Dの画面スクリーン座標に変換（投影）
             const popupPos = initialPos.clone();
             popupPos.project(this.camera);
 
-            // カメラの背後にある場合は非表示、前方にある場合は画面に描画
-            if (popupPos.z > 1)
-            {
+            if (popupPos.z > 1) {
                 popup.style.display = 'none';
-            } else
-            {
+            } else {
                 popup.style.display = 'block';
-
-                // 投影された-1〜1の座標を画面のピクセル位置（左上0,0）に換算
                 const x = (popupPos.x * .5 + 0.5) * window.innerWidth;
                 const y = (-(popupPos.y * 0.5) + 0.5) * window.innerHeight;
 
-                // 計算した物理挙動のオフセットを加算して表示位置を決定
                 popup.style.left = `${x + offsetX - (baseFontSize / 2)}px`;
                 popup.style.top = `${y - offsetY}px`;
 
-                // 後半にかけて徐々に透明にする（フェードアウト）
-                if (progress > 0.5)
-                {
-                    popup.style.opacity = `${1.0 - (progress - 0.5) * 2}`;
-                }
+                if (progress > 0.5) popup.style.opacity = `${1.0 - (progress - 0.5) * 2}`;
             }
-
-            // 次のフレームも継続してアニメーションを実行
             requestAnimationFrame(animate);
         };
-
-        // ループを開始
         requestAnimationFrame(animate);
+    }
+
+    updateHUD() {
+        const scoreElem = document.getElementById('score-text');
+        const killElem = document.getElementById('kill-text');
+        if (scoreElem) scoreElem.innerText = `SCORE: ${this.score}`;
+        if (killElem) killElem.innerText = `KILLS: ${this.killCount}`;
+    }
+
+    updateTimerHUD() {
+        const timerElem = document.getElementById('timer-text');
+        if (timerElem) {
+            const minutes = String(Math.floor(this.elapsedTime / 60)).padStart(2, '0');
+            const seconds = String(this.elapsedTime % 60).padStart(2, '0');
+            timerElem.innerText = `TIME: ${minutes}:${seconds}`;
+        }
+    }
+
+    initResultModals() {
+        const existing = document.getElementById('result-modal-container');
+        if (existing) existing.remove();
+
+        const container = document.createElement('div');
+        container.id = 'result-modal-container';
+        container.innerHTML = `
+            <style>
+                .sao-modal-overlay {
+                    position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
+                    background: rgba(6, 9, 19, 0.88); backdrop-filter: blur(8px);
+                    display: flex; justify-content: center; align-items: center; z-index: 999999;
+                    font-family: 'Rajdhani', sans-serif;
+                }
+                .sao-modal-box {
+                    background: linear-gradient(180deg, rgba(16, 22, 36, 0.95) 0%, rgba(8, 12, 20, 0.98) 100%);
+                    border: 1px solid rgba(0, 240, 255, 0.6);
+                    border-radius: 4px; padding: 0; width: 420px;
+                    box-shadow: 0 0 30px rgba(0, 240, 255, 0.3), inset 0 0 20px rgba(0, 240, 255, 0.1);
+                    position: relative; overflow: hidden;
+                }
+                .sao-modal-box.clear-theme {
+                    border-color: rgba(0, 240, 255, 0.8);
+                    box-shadow: 0 0 35px rgba(0, 240, 255, 0.4), inset 0 0 20px rgba(0, 240, 255, 0.15);
+                }
+                .sao-modal-box.over-theme {
+                    border-color: rgba(255, 51, 85, 0.8);
+                    box-shadow: 0 0 35px rgba(255, 51, 85, 0.4), inset 0 0 20px rgba(255, 51, 85, 0.15);
+                }
+                .sao-header-bar {
+                    height: 38px; padding: 0 16px; display: flex; align-items: center; justify-content: space-between;
+                    background: linear-gradient(90deg, #00f0ff 0%, #0077ff 100%);
+                    color: #000000; font-family: 'Orbitron', sans-serif; font-weight: 900;
+                    font-size: 14px; letter-spacing: 2px; text-transform: uppercase;
+                }
+                .sao-header-bar.over-theme {
+                    background: linear-gradient(90deg, #ff3355 0%, #990022 100%);
+                    color: #ffffff;
+                }
+                .sao-body { padding: 25px 30px; text-align: center; }
+                .sao-main-title {
+                    font-family: 'Orbitron', sans-serif; font-size: 26px; font-weight: 900;
+                    margin-bottom: 20px; letter-spacing: 2px;
+                }
+                .sao-main-title.clear { color: #00f0ff; text-shadow: 0 0 12px rgba(0, 240, 255, 0.8); }
+                .sao-main-title.over { color: #ff3355; text-shadow: 0 0 12px rgba(255, 51, 85, 0.8); }
+                
+                .sao-stat-list { margin: 20px 0; border-top: 1px solid rgba(255, 255, 255, 0.1); }
+                .sao-stat-row {
+                    display: flex; justify-content: space-between; align-items: center;
+                    padding: 10px 0; border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+                    font-size: 18px; font-weight: 600; color: #d0d8e8;
+                }
+                .sao-stat-val { font-family: 'Orbitron', sans-serif; font-weight: 700; color: #ffffff; }
+                .sao-bonus-val { color: #00f0ff; text-shadow: 0 0 8px rgba(0,240,255,0.6); }
+
+                .sao-action-bar { margin-top: 25px; display: flex; justify-content: center; }
+            </style>
+
+            <div id="clear-modal" class="sao-modal-overlay" style="display: none;">
+                <div class="sao-modal-box clear-theme">
+                    <div class="sao-header-bar">
+                        <span>SYSTEM ANNOUNCEMENT</span>
+                        <span>[STAGE CLEARED]</span>
+                    </div>
+                    <div class="sao-body">
+                        <div class="sao-main-title clear">CONGRATULATIONS!</div>
+                        <div class="sao-stat-list">
+                            <div class="sao-stat-row"><span>TOTAL SCORE</span><span id="clear-score" class="sao-stat-val">0</span></div>
+                            <div class="sao-stat-row"><span>TARGETS KILLED</span><span id="clear-kills" class="sao-stat-val">0</span></div>
+                            <div class="sao-stat-row"><span>CLEAR TIME</span><span id="clear-time" class="sao-stat-val">0s</span></div>
+                            <div class="sao-stat-row"><span>TIME BONUS</span><span id="clear-bonus" class="sao-stat-val sao-bonus-val">+0</span></div>
+                        </div>
+                        <div class="sao-action-bar">
+                            <button class="sao-btn" onclick="location.reload()">LINK START AGAIN</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div id="over-modal" class="sao-modal-overlay" style="display: none;">
+                <div class="sao-modal-box over-theme">
+                    <div class="sao-header-bar over-theme">
+                        <span>SYSTEM NOTIFICATION</span>
+                        <span>[YOU DIED]</span>
+                    </div>
+                    <div class="sao-body">
+                        <div class="sao-main-title over">YOU DIED</div>
+                        <div class="sao-stat-list">
+                            <div class="sao-stat-row"><span>FINAL SCORE</span><span id="over-score" class="sao-stat-val">0</span></div>
+                            <div class="sao-stat-row"><span>TARGETS KILLED</span><span id="over-kills" class="sao-stat-val">0</span></div>
+                            <div class="sao-stat-row"><span>SURVIVED TIME</span><span id="over-time" class="sao-stat-val">0s</span></div>
+                        </div>
+                        <div class="sao-action-bar">
+                            <button class="sao-btn" onclick="location.reload()">RESPAWN / RETRY</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        `;
+        document.body.appendChild(container);
+    }
+
+    showClearModal(timeBonus = 0) {
+        const overModal = document.getElementById('over-modal');
+        if (overModal) overModal.style.display = 'none';
+
+        document.getElementById('clear-score').innerText = this.score;
+        document.getElementById('clear-kills').innerText = this.killCount;
+        document.getElementById('clear-time').innerText = `${this.elapsedTime}s`;
+        document.getElementById('clear-bonus').innerText = `+${timeBonus}`;
+
+        const clearModal = document.getElementById('clear-modal');
+        if (clearModal) clearModal.style.display = 'flex';
+    }
+
+    showGameOverModal() {
+        const clearModal = document.getElementById('clear-modal');
+        if (clearModal) clearModal.style.display = 'none';
+
+        document.getElementById('over-score').innerText = this.score;
+        document.getElementById('over-kills').innerText = this.killCount;
+        document.getElementById('over-time').innerText = `${this.elapsedTime}s`;
+
+        const overModal = document.getElementById('over-modal');
+        if (overModal) overModal.style.display = 'flex';
     }
 }
